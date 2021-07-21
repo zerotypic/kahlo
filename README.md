@@ -27,7 +27,7 @@ class AnotherScribe(TestScribe):
 
 Builds upon frida's RPC framework to provide asynchronous RPC between host and
 agent and vice versa.
-'
+
 ```python
 class TestRPC(kahlo.rpc.BaseRPC):
 
