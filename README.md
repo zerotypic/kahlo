@@ -81,6 +81,12 @@ JEB Decompiler.
 
 If you want to use the signature parsers for Android and JEB, you need `pyparsing`.
 
+## TODO
+
+* Function hooking framework
+* Better documentation, especially of the API
+* More signature schemes
+
 ## License
 
 GNU General Public License v3.0
