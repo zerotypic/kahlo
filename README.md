@@ -1,6 +1,24 @@
 kahlo : Higher-level interface for frida
 ========================================
 
+## Using
+
+```python
+>>> import frida
+>>> import kahlo
+# The Scribe class has an associated script.
+>>> class TestScribe(kahlo.Scribe):
+...    _SCRIPT = '''console.log("hello world");'''
+# Create a frida session.
+>>> session = frida.get_local_device().attach("nano")
+# Create a Scribe subclass associated with the session.
+>>> test = TestScribe(session)
+# Bind the Scribe object to the session, causing script to be run on the
+# agent.
+>>> test.bind()
+hello world
+```
+
 ## Features
 
 Here are some features available in kahlo so far.
