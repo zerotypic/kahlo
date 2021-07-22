@@ -1,5 +1,5 @@
-kahlo : Higher-level interface for frida
-========================================
+kahlo : Higher-level Python interface for frida
+===============================================
 
 ```python
 >>> import frida
@@ -41,6 +41,35 @@ Hello agent foo
 host said nice to meet you
 42
 ```
+
+## Design Rationale
+
+The main rationale behind kahlo is to facilitate host-centric use of
+frida. Most tools and scripts built on frida tend to be more agent-centric;
+they are mostly Javascript that runs within the agent (at least based on what
+I've seen out there). This is usually fine, and an efficient way of doing
+things. But there are situations where this is a problem, usually because
+there is some analysis that you want to do, which cannot be done on the
+agent, especially if your target is an embedded device.
+
+For example:
+
+* You need to access some data over the network/Internet, but your target device cannot
+  be connected to a network for whatever reason.
+
+* Your analysis requires coordination over multiple devices, so you need to
+  consolidate the logic within a central management system on the host.
+
+* You need to process something beyond the capabilities of the target's CPU or
+  memory.
+  
+In my specific use case, I needed something that let me interoperate with JEB
+(https://www.pnfsoftware.com/jeb/) and other static analysis tools built on
+top of that, running on the host.
+
+As such, kahlo is meant for building tools where the code running on the agent
+is usually minimal (and hence suitable for inlining within Python code), just
+gathering data and passing it to the host to process.
 
 ## Features
 
