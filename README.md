@@ -1,22 +1,45 @@
 kahlo : Higher-level interface for frida
 ========================================
 
-## Using
-
 ```python
 >>> import frida
 >>> import kahlo
+
 # The Scribe class has an associated script.
 >>> class TestScribe(kahlo.Scribe):
 ...    _SCRIPT = '''console.log("hello world");'''
+
 # Create a frida session.
 >>> session = frida.get_local_device().attach("nano")
+
 # Create a Scribe subclass associated with the session.
 >>> test = TestScribe(session)
+
 # Bind the Scribe object to the session, causing script to be run on the
 # agent.
 >>> test.bind()
 hello world
+
+# Bidirectional async RPC
+>>> class TestRPC(kahlo.rpc.BaseRPC):
+...    @kahlo.rpc.hostcall
+...    def host_hello(self, name):
+...        print("Hello {}".format(name))
+...        return "nice to meet you"
+...
+...    agent_call_host = kahlo.rpc.agentcall('''
+...       async function (name) {
+...          var rv = await kahlo.hostcall.host_hello("agent " + name)
+...          console.log("host said " + rv);
+...          return 42
+...       }
+...    ''')
+>>> rpc = TestRPC(session)
+>>> rpc.bind()
+>>> await rpc.agentcall.agent_call_host("foo")
+Hello agent foo
+host said nice to meet you
+42
 ```
 
 ## Features
