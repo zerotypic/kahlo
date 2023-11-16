@@ -1,14 +1,16 @@
-# -*- mode: poly-pyjs -*-
+# -XXX*- mode: poly-pyjs -*-
 #
 # scribe : Script-carrying objects
 #
 
 import json
 import string
+import frida
 
 __all__ = ("Scribe",)
 
 class Exn(Exception): pass
+class BindExn(Exn): pass
 
 class Scribe(object):
     '''High-level scripting object for frida.
@@ -64,6 +66,13 @@ class Scribe(object):
         # expression assigned to the variable.
         self._script_env = {}
         self._subsystem_map = {}
+
+        # Additional per-object code that can be added to the script. If used,
+        # must be set before the script is bound.
+        self._script_postamble = None
+        
+        # Auxillary scripts that can be added if required.
+        self._aux_scripts = []
     #enddef
 
 
@@ -78,13 +87,18 @@ class Scribe(object):
         self._script_env[name] = value
     #enddef
     
+
+    def set_script_postamble(self, jscode):
+        self._script_postamble = jscode
+    #enddef
+
     def bind(self):
 
         # Build string representation of environment variables.
         script_env_str = "{" + \
             ",\n".join(["{} : {}".format(k, v) for (k, v) in self._script_env.items()]) + \
             "}"
-        
+
         # Build the final script to be injected.
         allbases = []
         def getbases(cls):
@@ -101,14 +115,42 @@ class Scribe(object):
         )
         
         fullscript = "\n".join([basescript] + [c._SCRIPT for c in allbases])
-        self._script_str = fullscript
+
+        if self._script_postamble:
+            fullscript += self._script_postamble
+        #endif
         
-        self._script = self._session.create_script(fullscript)
+        self._script_str = fullscript
+
+        wrapped_fullscript = "Java.perform(() => {{ {} }});".format(fullscript)
+
+        try:
+            self._script = self._session.create_script(wrapped_fullscript)
+        except frida.InvalidArgumentError as e:
+            # Try to parse the exception and print out lines with errors.
+            import re
+            m = re.compile("^script\(line (\d+)\)").match(e.args[0])
+            if m != None:
+                print("Error running script: {}".format(e.args[0]), end="\n\t")
+                line = int(m[1]) - 1
+                print("\n\t".join(wrapped_fullscript.splitlines()[max(line-1, 0):line+2]))
+                print("="*80)
+                print("".join(["{}\t{}\n".format(i+1, l) for (i, l) in enumerate(wrapped_fullscript.splitlines())]))
+            #endif
+            raise BindExn(e.args[0]) from e
+        #endtry                
+        
         self._script.on("message", self._on_message)
         self._script.load()
 
     #enddef
 
+    def add_aux_script(self, jscode):
+        script = self._session.create_script(jscode)
+        script.load()
+        self._aux_scripts.append(script)
+    #enddef
+    
     def register_subsystem(self, subsys, handler):
         self._subsystem_map[subsys] = handler
     #enddef
@@ -153,7 +195,11 @@ class Scribe(object):
         else:
             print("ERROR:")
         #endif
-        print(message["stack"])
+        if "stack" in message:
+            print(message["stack"])
+        else:
+            print(repr(message))
+        #endif
     #enddef
 
 #endclass

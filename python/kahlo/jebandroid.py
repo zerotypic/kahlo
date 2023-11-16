@@ -2,11 +2,21 @@
 # jebandroid : Signature scheme for interoperability with JEB, on Android targets
 #
 
+import json
+
 from . import signature
 from . import android
 
 class Exn(Exception): pass
+
 class ConversionExn(Exn): pass
+
+class TranslatorExn(Exn): pass
+
+class InspectorExn(Exn): pass
+class UnknownSignatureExn(InspectorExn): pass
+
+class SchemeExn(Exn): pass
 
 _special_name_map = {
     "$init" : "<init>",
@@ -33,6 +43,11 @@ class JebFormatter(signature.Formatter):
                 _meth_name_to_jeb(sig.name),
                 "".join((ty.to_jvm() for ty in sig.params)),
                 sig.retty.to_jvm())
+        elif isinstance(sig, android.FieldSignature):
+            return "{}->{}:{}".format(
+                sig.clsty.to_jvm(),
+                sig.name,
+                sig.ty.to_jvm())
         else:
             # Shouldn't be the case.
             assert False
@@ -46,11 +61,243 @@ class JebFormatter(signature.Formatter):
 #endclass
 JebFormatter.singleton = JebFormatter()
 
+# This class can also be used as an inspector to retrieve additional details about a signature.
+class JebTranslator(signature.Translator, signature.Inspector):
+
+    # Note: This class always ignores misses as that is the design of the translation map.
+    def __init__(self, mapfile, sigcls=android.Signature, formatter=JebFormatter.singleton):
+        assert(issubclass(sigcls, android.Signature))
+        super().__init__(sigcls)
+        self.formatter = formatter
+        self.mapfile = mapfile
+        self.load_map()
+    #enddef
+
+    def load_map(self):
+
+        with open(self.mapfile) as f:
+            self.full_map = json.loads(f.read())
+        #endwith
+
+        self.rtl_lookup = {}
+        for (lclssig, lclsinfo) in self.full_map.items():
+            rclssig = lclsinfo["runtime_sig"]
+            self.rtl_lookup[rclssig] = lclssig
+        #endfor
+       
+        # # Change ltr_map to something like full_map, because it will contain
+        # # all the required info.
+        # self.ltr_map = {}
+
+        # # rtl_map should be for quick lookups, main info should come from the full map.
+        # self.rtl_map = {}
+        
+        # for (lclsname, lclsinfo) in raw_map.items():
+
+        #     rclsname = lclsinfo["mapped_name"]
+
+        #     # XXX: It's probably better to pre-generate this in jeb_maketrans instead.
+        #     lfields = {
+        #         self.formatter.from_disp(lname).name : self.formatter.from_disp(rname).name
+        #         for (lname, rname)
+        #         in lclsinfo["fields"].items()
+        #     }
+            
+        #     self.ltr_map[lclsname] = {
+        #         "mapped_name" : rclsname,
+        #         "methods" : lclsinfo["methods"],
+        #         "fields" : lfields,
+        #     }
+
+        #     self.rtl_map[rclsname] = {
+        #         "mapped_name" : lclsname,
+        #         "methods" : flip_dict(lclsinfo["methods"]),
+        #         "fields" : flip_dict(lfields),
+        #     }
+
+        # #endfor
+        
+    #enddef
+
+    
+    # def load_map(self):
+
+    #     with open(self.mapfile) as f:
+    #         self.ltr_map = json.loads(f.read())
+    #     #endwith
+
+    #     def flip_dict(dct): return { v: k for (k, v) in dct.items() }
+    #     self.rtl_map = {
+    #         lclsinfo["mapped_name"] : # runtime class name
+    #         {
+    #             "mapped_name" : lclsname, # logical class name
+    #             "methods" : flip_dict(lclsinfo["methods"]),
+    #             "fields" : flip_dict(lclsinfo["fields"])
+    #         }
+    #         for (lclsname, lclsinfo)
+    #         in self.ltr_map.items()
+    #     }
+        
+    # #enddef
+
+    def _get_info(self, sig_from : android.Signature):
+
+        disp_from = self.formatter.to_disp(sig_from)
+
+        cls_sig = sig_from.get_class_sig()
+        cls_disp = self.formatter.to_disp(cls_sig)
+        if cls_disp in self.full_map:
+            cls_info = self.full_map[cls_disp]
+        else:
+            return None
+        #endif
+
+        if isinstance(sig_from, android.ClassSignature):
+            return cls_info
+        elif isinstance(sig_from, android.MethodSignature):
+            if disp_from in cls_info["methods"]:
+                meth_info = cls_info["methods"][disp_from]
+                return meth_info
+            else:
+                return None
+            #endif
+        elif isinstance(sig_from, android.FieldSignature):
+            field_name = sig_from.name
+            if field_name in cls_info["fields"]:
+                field_info = cls_info["fields"]["field_name"]
+                if field_info["logical_sig"] != disp_from:
+                    raise TranslatorExn("Field signature conflict: expected {}, got {}".format(disp_from, field_info["logical_sig"]))
+                return field_info
+            else:
+                return None
+            #endif
+        else:
+            raise TranslatorExn("Unsupported signature type: {!r}".format(type(sig_from)))
+        #endif
+    #enddef
+
+    def to_runtime(self, lsig):
+        info = self._get_info(lsig)
+        return self.formatter.from_disp(info["runtime_sig"]) if info != None else lsig
+    #enddef
+
+    def to_logical(self, rsig):
+
+        rdisp = self.formatter.to_disp(rsig)
+        
+        rcls_disp = self.formatter.to_disp(rsig.get_class_sig())
+        if not rcls_disp in self.rtl_lookup: return rsig
+
+        lcls_disp = self.rtl_lookup[rcls_disp]
+        lcls_sig = self.formatter.from_disp(lcls_disp)
+        lcls_info = self._get_info(lcls_sig)
+        if lcls_info == None: return rsig
+
+        if isinstance(rsig, android.ClassSignature):
+            return lcls_sig
+        elif isinstance(rsig, android.MethodSignature):
+            for (lmeth_sig, lmeth_info) in lcls_info["methods"].items():
+                if lmeth_info["runtime_sig"] == rdisp:
+                    return self.formatter.from_disp(lmeth_sig)
+                #endif
+            #endfor
+            return rsig
+            
+        elif isinstance(rsig, android.FieldSignature):
+            for (lfield_sig, lfield_info) in lcls_info["fields"].items():
+                if lfield_info["runtime_sig"] == rdisp:
+                    return self.formatter.from_disp(field_sig)
+                #endif
+            #endfor
+            return rsig
+
+        else:
+            raise TranslatorExn("Unsupported signature type: {!r}".format(type(sig_from)))
+        #endif
+        
+    #enddef
+    
+    # def _lookup(self, themap, sig_from : android.Signature):
+
+    #     if isinstance(sig_from, android.ClassSignature):
+    #         disp_from = self.formatter.to_disp(sig_from)
+    #         if disp_from in themap:
+    #             disp_to = themap[disp_from]["mapped_name"]
+    #             return self.formatter.from_disp(disp_to)
+    #         elif self.ignore_misses:
+    #             return sig_from
+    #         else:
+    #             raise TranslatorExn("Could not find signature {} in map".format(disp_from))
+    #         #endif
+
+    #     elif isinstance(sig_from, android.MethodSignature) or isinstance(sig_from, android.FieldSignature):
+            
+    #         cls_disp_from = self.formatter.to_disp(sig_from.get_class_sig())
+    #         if cls_disp_from in themap:
+
+    #             clsinfo = themap[cls_disp_from]
+    #             disp_from = self.formatter.to_disp(sig_from)
+                
+    #             if isinstance(sig_from, android.MethodSignature):
+    #                 item_map = clsinfo["methods"]
+    #             else:
+    #                 item_map = clsinfo["fields"]
+    #             #endif
+
+    #             if disp_from in item_map:
+    #                 disp_to = item_map[disp_from]
+    #                 return self.formatter.from_disp(disp_to)
+    #             elif self.ignore_misses:
+    #                 return sig_from
+    #             else:
+    #                 raise TranslatorExn("Could not find signature {} in map".format(disp_from))
+    #             #endif
+    #         elif self.ignore_misses:
+    #             return sig_from
+    #         else:
+    #             raise TranslatorExn("Could not find signature {} in map".format(disp_from))
+    #         #endif
+
+    #     else:
+    #         raise TranslatorExn("Unsupported signature type: {!r}".format(type(sig_from)))
+    #     #endif
+
+    # #enddef
+
+    # def to_runtime(self, sig): return self._lookup(self.ltr_map, sig)
+    # def to_logical(self, sig): return self._lookup(self.rtl_map, sig)
+
+    def has_details(self, sig):
+        return self._get_info(sig) != None
+    #enddef
+    
+    def get_details(self, sig):
+        info = self._get_info(sig)
+        if info == None:
+            raise UnknownSignatureExn("Cannot get details of unknown signature {}".format(self.formatter.to_disp(sig)))
+        #endif
+        return info
+    #enddef
+    
+#endclass
+
 class JebAndroidScheme(signature.Scheme):
-    def __init__(self, translator=None):
+    def __init__(self, mapfile=None, translator=None, inspector=None):
+        if mapfile != None:
+            if translator == None:
+                translator = JebTranslator(mapfile)
+            else:
+                raise SchemeExn("Only one of mapfile or translator can be specified.")
+            #endif
+        #endif
+        if inspector == None and isinstance(translator, JebTranslator):
+            inspector = translator
+        #endif
+       
         super().__init__(android.Signature,
                          formatter=JebFormatter.singleton,
-                         translator=translator)
+                         translator=translator,
+                         inspector=inspector)
     #enddef
 #endclass
 
@@ -106,9 +353,12 @@ def JebClassSignature(tok):
 
 @parser(JebCls("cls") + supp("->") + JebIdentifier("method") + JebParameterList("params") + JebTypeName("retty"))
 def JebMethodSignature(tok):
-    return android.MethodSignature(tok.cls, _meth_name_from_jeb(tok.method), tok.params, tok.retty)
+    return android.MethodSignature(tok.cls, _meth_name_from_jeb(tok.method), list(tok.params), tok.retty)
 #enddef
 
-# XXX: Leaving out field signatures for now.
+@parser(JebCls("cls") + supp("->") + JebIdentifier("name") + supp(":") + JebTypeName("ty"))
+def JebFieldSignature(tok):
+    return android.FieldSignature(tok.cls, tok.name, tok.ty)
+#enddef
 
-JebSignature = JebMethodSignature | JebClassSignature
+JebSignature = JebMethodSignature | JebFieldSignature | JebClassSignature

@@ -38,7 +38,7 @@ class TestRPC(kahlo.rpc.BaseRPC):
 
     @kahlo.rpc.hostcall
     def host_mult(self, c, d):
-        print("Called host_muilt with {} + {} = {}".format(c, d, c*d))
+        print("Called host_mult with {} * {} = {}".format(c, d, c*d))
         return c * d
     #enddef
 
