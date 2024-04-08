@@ -1,4 +1,3 @@
-# -XXX*- mode: poly-pyjs -*-
 #
 # velcro : Add hooks to functions
 #
@@ -196,6 +195,12 @@ class Velcro(rpc.BaseRPC):
                 if (func.overloads != undefined) {
                     func = func.overload.apply(func, meth_info["frida_params"])
                 }
+
+                // XXX: Note that this doesn't work properly if the logical
+                // method name is overloaded; here we will just replace the
+                // previous implementation with the current one. Will have to
+                // figure out the best way to implement overloaded logical
+                // method names in the future.
                 
                 wrapper[meth_info["logical_name"]] = function () {
                     // LOG(`Calling wrapper of ${meth_info["logical_name"]}.`);
@@ -264,43 +269,66 @@ class Velcro(rpc.BaseRPC):
                     return info["methods"][meth_full_sig];
                 };                
             },
+           
+            create_class : function(name, supercls, intf, methods) {
 
-            create_class_implementation : function(name, intf, methods) {
+                function dummy_lookup(n) { return undefined; }
+                
+                const supercls_lookup = supercls ? kahlo.velcro.get_method_lookup_function(supercls) : dummy_lookup;
+                const intf_lookup = intf ? kahlo.velcro.get_method_lookup_function(intf) : dummy_lookup;
 
-                const intf_info = kahlo.velcro.imported_class_info[intf.$n];
-                const method_lookup = kahlo.velcro.get_method_lookup_function(intf);
-
-                const build_methods = {};              
+                const build_methods = {};
+                var ctor = undefined;
                 Object.entries(methods).forEach(function ([meth_lsig, meth_impl]) {
-                    const meth_info = method_lookup(meth_lsig);
-                    const meth_name = meth_info["runtime_name"]
-                    if (build_methods[meth_name] == null) {
-                        build_methods[meth_name] = []
+                    // Special case for constructor
+                    if (meth_lsig == "$init") {
+                        ctor = meth_impl;
+                        return;
                     }
-                    build_methods[meth_name].push([meth_impl, meth_info])
+
+                    const sc_meth_info = supercls_lookup(meth_lsig);
+                    const if_meth_info = intf_lookup(meth_lsig);
+
+                    const meth_info = sc_meth_info ? sc_meth_info : if_meth_info;
+
+                    if (meth_info) {
+
+                        const meth_name = meth_info["runtime_name"];
+
+                        if (build_methods[meth_name] == null) {
+                            build_methods[meth_name] = []
+                        }
+                        build_methods[meth_name].push([meth_impl, meth_info])
+                        
+                    } else {
+                        LOG("WARNING: Unknown logical signature when building method list for class: " + meth_lsig);
+                    }
+                    
                 });
                 
                 const rtmethods = Object.fromEntries(
                     Object.entries(build_methods).map(function ([meth_name, impl_infos]) {
-                        if (impl_infos.length == 1) {
-                            return [meth_name, impl_infos[0][0]];
-                        } else {
-                            // XXX: CODE HERE HASN'T BEEN TESTED YET!
-                            return [meth_name,
-                                    impl_infos.map(function ([meth_impl, meth_info]) {
-                                        return {
-                                            returnType : meth_info["frida_retty"],
-                                            argumentTypes : meth_info["frida_params"],
-                                            implementation : meth_impl
-                                        }
-                                    })];
-                        }
-                    })
-                );
+                        return [meth_name,
+                                impl_infos.map(function ([meth_impl, meth_info]) {
+                                    // Note: we fully specify the type signature here to ensure the right method
+                                    // is being replaced.
+                                    return {
+                                        returnType : meth_info["frida_retty"],
+                                        argumentTypes : meth_info["frida_params"],
+                                        implementation : meth_impl
+                                    }
+                                })];
+                    }));
+                if (ctor) {
+                    rtmethods["$init"] = ctor;
+                }
+
+                LOG("rtmethods = " + JSON.stringify(rtmethods));
 
                 return Java.registerClass({
                     name : name,
-                    implements : [intf],
+                    superClass : supercls ? supercls : undefined,
+                    implements : intf ? [intf] : undefined,
                     methods : rtmethods
                 });                
             }
@@ -426,8 +454,9 @@ class Velcro(rpc.BaseRPC):
     async function(libname, funcname, target_id, inline_js) {
         var target_func = Module.findExportByName(libname, funcname);
 
-        // XXX: Think about how to change it so we're using an async function
-        // here instead of a callback object. Will make the API more consistent.
+        // XXX: Use an async function here instead of a callback object. Will
+        // make the API more consistent.
+        
         var inline_obj = null;
         if (inline_js != null) {
             inline_obj = eval("(" + inline_js + ")");

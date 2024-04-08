@@ -84,61 +84,7 @@ class JebTranslator(signature.Translator, signature.Inspector):
             rclssig = lclsinfo["runtime_sig"]
             self.rtl_lookup[rclssig] = lclssig
         #endfor
-       
-        # # Change ltr_map to something like full_map, because it will contain
-        # # all the required info.
-        # self.ltr_map = {}
-
-        # # rtl_map should be for quick lookups, main info should come from the full map.
-        # self.rtl_map = {}
-        
-        # for (lclsname, lclsinfo) in raw_map.items():
-
-        #     rclsname = lclsinfo["mapped_name"]
-
-        #     # XXX: It's probably better to pre-generate this in jeb_maketrans instead.
-        #     lfields = {
-        #         self.formatter.from_disp(lname).name : self.formatter.from_disp(rname).name
-        #         for (lname, rname)
-        #         in lclsinfo["fields"].items()
-        #     }
-            
-        #     self.ltr_map[lclsname] = {
-        #         "mapped_name" : rclsname,
-        #         "methods" : lclsinfo["methods"],
-        #         "fields" : lfields,
-        #     }
-
-        #     self.rtl_map[rclsname] = {
-        #         "mapped_name" : lclsname,
-        #         "methods" : flip_dict(lclsinfo["methods"]),
-        #         "fields" : flip_dict(lfields),
-        #     }
-
-        # #endfor
-        
-    #enddef
-
-    
-    # def load_map(self):
-
-    #     with open(self.mapfile) as f:
-    #         self.ltr_map = json.loads(f.read())
-    #     #endwith
-
-    #     def flip_dict(dct): return { v: k for (k, v) in dct.items() }
-    #     self.rtl_map = {
-    #         lclsinfo["mapped_name"] : # runtime class name
-    #         {
-    #             "mapped_name" : lclsname, # logical class name
-    #             "methods" : flip_dict(lclsinfo["methods"]),
-    #             "fields" : flip_dict(lclsinfo["fields"])
-    #         }
-    #         for (lclsname, lclsinfo)
-    #         in self.ltr_map.items()
-    #     }
-        
-    # #enddef
+    #enddef      
 
     def _get_info(self, sig_from : android.Signature):
 
@@ -217,56 +163,6 @@ class JebTranslator(signature.Translator, signature.Inspector):
         
     #enddef
     
-    # def _lookup(self, themap, sig_from : android.Signature):
-
-    #     if isinstance(sig_from, android.ClassSignature):
-    #         disp_from = self.formatter.to_disp(sig_from)
-    #         if disp_from in themap:
-    #             disp_to = themap[disp_from]["mapped_name"]
-    #             return self.formatter.from_disp(disp_to)
-    #         elif self.ignore_misses:
-    #             return sig_from
-    #         else:
-    #             raise TranslatorExn("Could not find signature {} in map".format(disp_from))
-    #         #endif
-
-    #     elif isinstance(sig_from, android.MethodSignature) or isinstance(sig_from, android.FieldSignature):
-            
-    #         cls_disp_from = self.formatter.to_disp(sig_from.get_class_sig())
-    #         if cls_disp_from in themap:
-
-    #             clsinfo = themap[cls_disp_from]
-    #             disp_from = self.formatter.to_disp(sig_from)
-                
-    #             if isinstance(sig_from, android.MethodSignature):
-    #                 item_map = clsinfo["methods"]
-    #             else:
-    #                 item_map = clsinfo["fields"]
-    #             #endif
-
-    #             if disp_from in item_map:
-    #                 disp_to = item_map[disp_from]
-    #                 return self.formatter.from_disp(disp_to)
-    #             elif self.ignore_misses:
-    #                 return sig_from
-    #             else:
-    #                 raise TranslatorExn("Could not find signature {} in map".format(disp_from))
-    #             #endif
-    #         elif self.ignore_misses:
-    #             return sig_from
-    #         else:
-    #             raise TranslatorExn("Could not find signature {} in map".format(disp_from))
-    #         #endif
-
-    #     else:
-    #         raise TranslatorExn("Unsupported signature type: {!r}".format(type(sig_from)))
-    #     #endif
-
-    # #enddef
-
-    # def to_runtime(self, sig): return self._lookup(self.ltr_map, sig)
-    # def to_logical(self, sig): return self._lookup(self.rtl_map, sig)
-
     def has_details(self, sig):
         return self._get_info(sig) != None
     #enddef

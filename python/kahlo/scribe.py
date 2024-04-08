@@ -1,4 +1,3 @@
-# -XXX*- mode: poly-pyjs -*-
 #
 # scribe : Script-carrying objects
 #

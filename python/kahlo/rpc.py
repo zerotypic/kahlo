@@ -1,4 +1,3 @@
-# -XXX*- mode: poly-pyjs -*-
 #
 # rpc : Base RPC mechanism for kahlo
 #
