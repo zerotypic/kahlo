@@ -215,10 +215,17 @@ class Velcro(rpc.BaseRPC):
             if (field_info["static"] != use_static) continue;
             // LOG(`\tWrapping property: ${lsig}`);
             // LOG(`\t\tRuntime name: ${field_info["runtime_name"]}`);
+
+            // If a field and a method have the same name, frida will allow access to
+            // the field by prepending "_" to its name. We can thus test if this is the
+            // case by checking for a field with such a name, and if so, use that as the
+            // runtime name.
+            const rtname = (obj["_" + field_info["runtime_name"]] != undefined) ? "_" + field_info["runtime_name"] : field_info["runtime_name"];
+            
             Object.defineProperty(
                 wrapper,
                 field_info["logical_name"],
-                { get() { return obj[field_info["runtime_name"]] }}
+                { get() { return obj[rtname] }}
             );
         }
         return wrapper;
